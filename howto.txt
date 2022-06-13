@@ -198,7 +198,7 @@ LEVEL04
 ===========
 
 катнув левел, мы видим мем:
-[�%uGive me some shellcode, kchild is exiting...no exec() for you;P	L��
+[�%uGive me some shellcode, kchild is exiting...no exec() for you;P(видимо нам не разрешат вызывать exec from shellcode)	L��
 
 Походу тут опять какой-нибудь gets для которого нужен shellcode
 ltrace собственно подтверждает 
